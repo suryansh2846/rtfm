@@ -122,7 +122,7 @@ impl ManDb {
         let output_str = String::from_utf8_lossy(&output.stdout);
         let mut man_map = HashMap::new();
         let mut commands = Vec::new();
-        let re = Regex::new(r"\((\d)\)").unwrap();
+        let re = Regex::new(r"\((\d)\)")?;
 
         for line in output_str.lines() {
             if let Some((name, desc)) = line.split_once(" - ") {

@@ -42,7 +42,7 @@
 
  > Read the f*cking manual NOW!
 
-RTFM - blazingly fast util for searching manuals &amp; docs. Blazingly fast terminal utility for exploring man pages and tldr cheatsheets.
+RTFM - blazingly fast util for exploring man pages and tldr cheatsheets.
 
 We are support [tldr](https://github.com/tldr-pages/tldr). You should install `man` and `tldr`.
 

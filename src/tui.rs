@@ -6,17 +6,17 @@ use crossterm::{
         KeyModifiers,
     },
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tui::{
-    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    Terminal,
 };
 
 const PAGE_SIZE: usize = 30;
@@ -69,6 +69,14 @@ enum Focus {
 enum PageSource {
     Man,
     Tldr,
+}
+
+fn scroll_to_top(app: &mut AppState) {
+    app.man_page.scroll = 0;
+}
+
+fn scroll_to_bottom(app: &mut AppState) {
+    app.man_page.scroll = app.man_page.content.len().saturating_sub(PAGE_SIZE);
 }
 
 /// Runs the TUI application
@@ -129,10 +137,13 @@ pub async fn run_tui(man_db: ManDb) -> Result<()> {
 
                 // Handle Ctrl combinations first
                 if let KeyEvent {
-                        code: KeyCode::Char('c'),
-                        modifiers: KeyModifiers::CONTROL,
-                        ..
-                    } = key { break }
+                    code: KeyCode::Char('c'),
+                    modifiers: KeyModifiers::CONTROL,
+                    ..
+                } = key
+                {
+                    break;
+                }
 
                 match key.code {
                     KeyCode::Char('q') => break,
@@ -148,6 +159,20 @@ pub async fn run_tui(man_db: ManDb) -> Result<()> {
                         app.last_input_time = Instant::now();
                     }
                     _ => handle_key(&mut app, key).await,
+                }
+
+                match key {
+                    KeyEvent {
+                        code: KeyCode::Home,
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => scroll_to_top(&mut app), // Исправлено: добавлено &mut
+                    KeyEvent {
+                        code: KeyCode::End,
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => scroll_to_bottom(&mut app), // Исправлено: добавлено &mut
+                    _ => {}
                 }
             }
         }
@@ -224,6 +249,18 @@ async fn handle_command_list_keys(app: &mut AppState, key: KeyEvent) {
                 app.last_input_time = Instant::now();
             }
         }
+        KeyCode::Home if commands_len > 0 => {
+            app.command_list.selected_idx = 0;
+            update_list_scroll(app);
+            app.pending_man_load = true;
+            app.last_input_time = Instant::now();
+        }
+        KeyCode::End if commands_len > 0 => {
+            app.command_list.selected_idx = commands_len - 1;
+            update_list_scroll(app);
+            app.pending_man_load = true;
+            app.last_input_time = Instant::now();
+        }
         KeyCode::PageUp if commands_len > 0 => {
             app.command_list.selected_idx = app
                 .command_list
@@ -254,7 +291,11 @@ fn update_list_scroll(app: &mut AppState) {
     let visible_height = app.command_list.visible_range.1 - app.command_list.visible_range.0;
     let selected_idx = app.command_list.selected_idx;
 
-    if selected_idx < app.command_list.list_scroll {
+    if selected_idx == 0 {
+        app.command_list.list_scroll = 0;
+    } else if selected_idx == app.command_list.filtered_commands.len() - 1 {
+        app.command_list.list_scroll = selected_idx.saturating_sub(visible_height - 1);
+    } else if selected_idx < app.command_list.list_scroll {
         app.command_list.list_scroll = selected_idx;
     } else if selected_idx >= app.command_list.list_scroll + visible_height {
         app.command_list.list_scroll = selected_idx - visible_height + 1;
@@ -304,8 +345,16 @@ async fn load_current_page(app: &mut AppState) {
 
 fn handle_man_page_keys(app: &mut AppState, key: KeyEvent) {
     match key.code {
+        KeyCode::Char('f') => {
+            app.focus = Focus::Search;
+            app.search.query.clear();
+        }
         KeyCode::Up => app.man_page.scroll = app.man_page.scroll.saturating_sub(1),
         KeyCode::Down => app.man_page.scroll = app.man_page.scroll.saturating_add(1),
+        KeyCode::Home => app.man_page.scroll = 0,
+        KeyCode::End => {
+            app.man_page.scroll = app.man_page.content.len().saturating_sub(PAGE_SIZE)
+        }
         KeyCode::PageUp => app.man_page.scroll = app.man_page.scroll.saturating_sub(PAGE_SIZE),
         KeyCode::PageDown => {
             app.man_page.scroll = (app.man_page.scroll + PAGE_SIZE)
@@ -319,6 +368,8 @@ fn handle_man_page_keys(app: &mut AppState, key: KeyEvent) {
 
 fn handle_search_keys(app: &mut AppState, key: KeyEvent) {
     match key.code {
+        KeyCode::Char('j') => next_search_match(app),
+        KeyCode::Char('k') => prev_search_match(app),
         KeyCode::Enter => {
             update_search_matches(app);
             app.focus = Focus::ManPage;
@@ -396,7 +447,7 @@ fn render_ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut AppState
                 Constraint::Length(3),
                 Constraint::Min(10),
             ]
-            .as_ref(),
+                .as_ref(),
         )
         .split(f.size());
 
@@ -412,18 +463,19 @@ fn render_status_bar<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppS
     };
 
     let status = if app.loading {
-        format!("Loading {source_label}...")
+        format!("Loading {}...", source_label)
     } else {
         let x = &*format!(
-            "RTFM // {source_label} PAGE [Tab:Switch /:Search n/N:Next/Prev t:Toggle]"
+            "RTFM // {} PAGE [Tab:Switch /:Search t:Toggle Home/End]",
+            source_label
         );
         match app.focus {
-            Focus::CommandList => "RTFM // COMMAND LIST [Tab:Switch]",
+            Focus::CommandList => "RTFM // COMMAND LIST [Tab:Switch Home/End]",
             Focus::ManPage => x,
             Focus::Search => "RTFM // SEARCH MODE [Enter:Apply Esc:Cancel]",
         }
-        .parse()
-        .unwrap()
+            .parse()
+            .unwrap()
     };
 
     let status_bar = Paragraph::new(status)
@@ -503,7 +555,7 @@ fn render_command_list_items<B: tui::backend::Backend>(
         .iter()
         .map(|cmd| {
             let prefix = { "  " };
-            ListItem::new(format!("{prefix}{cmd}"))
+            ListItem::new(format!("{}{}", prefix, cmd))
         })
         .collect();
 

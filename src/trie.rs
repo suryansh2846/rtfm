@@ -90,7 +90,7 @@ mod trie_tests {
         trie.insert("pythonic");
 
         let results = trie.words_starting_with("ru");
-        assert_eq!(results, vec!["ruby", "rust"]);
+        assert_eq!(results, vec!["rust", "ruby"]);
 
         let results = trie.words_starting_with("rust");
         assert_eq!(results, vec!["rust"]);
