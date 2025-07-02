@@ -76,3 +76,57 @@ impl Trie {
         }
     }
 }
+
+#[cfg(test)]
+mod trie_tests {
+    use super::*;
+
+    #[test]
+    fn test_trie_insert_and_search() {
+        let mut trie = Trie::new();
+        trie.insert("rust");
+        trie.insert("ruby");
+        trie.insert("python");
+        trie.insert("pythonic");
+
+        let results = trie.words_starting_with("ru");
+        assert_eq!(results, vec!["ruby", "rust"]);
+
+        let results = trie.words_starting_with("rust");
+        assert_eq!(results, vec!["rust"]);
+
+        let results = trie.words_starting_with("java");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_trie_case_sensitivity() {
+        let mut trie = Trie::new();
+        trie.insert("Rust");
+        trie.insert("rust");
+        trie.insert("RUST");
+
+        let results = trie.words_starting_with("rus");
+        assert_eq!(results, vec!["rust"]);
+
+        let results = trie.words_starting_with("Rus");
+        assert_eq!(results, vec!["Rust"]);
+    }
+
+    #[test]
+    fn test_trie_special_characters() {
+        let mut trie = Trie::new();
+        trie.insert("docker-compose");
+        trie.insert("git@github.com");
+        trie.insert("100daysofcode");
+
+        let results = trie.words_starting_with("docker");
+        assert_eq!(results, vec!["docker-compose"]);
+
+        let results = trie.words_starting_with("git@");
+        assert_eq!(results, vec!["git@github.com"]);
+
+        let results = trie.words_starting_with("100");
+        assert_eq!(results, vec!["100daysofcode"]);
+    }
+}

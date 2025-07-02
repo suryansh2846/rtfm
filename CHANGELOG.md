@@ -1,3 +1,9 @@
+commit f91f48db73105ba406f9914ee790c5534651c5f7
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 13:54:38 2025 +0700
+
+    feat/fix: add short desc & fix bug with manual lists
+
 commit 1e208069af54f89c3881d146800c14d7ff7aa72f
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 12:33:25 2025 +0700
