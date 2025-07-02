@@ -61,7 +61,7 @@ mod cli_tests {
             .output()
             .expect("Failed to execute command");
 
-        assert!(String::from_utf8_lossy(&output.stdout).contains("rtfm 0.1.0"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("rtfm 0.2.0"));
 
         let output = Command::new("./target/release/rtfm")
             .arg("--help")

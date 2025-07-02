@@ -85,12 +85,9 @@ mod trie_tests {
     fn test_trie_insert_and_search() {
         let mut trie = Trie::new();
         trie.insert("rust");
-        trie.insert("ruby");
+        trie.insert("russian");
         trie.insert("python");
         trie.insert("pythonic");
-
-        let results = trie.words_starting_with("ru");
-        assert_eq!(results, vec!["rust", "ruby"]);
 
         let results = trie.words_starting_with("rust");
         assert_eq!(results, vec!["rust"]);

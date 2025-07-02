@@ -166,12 +166,12 @@ pub async fn run_tui(man_db: ManDb) -> Result<()> {
                         code: KeyCode::Home,
                         modifiers: KeyModifiers::CONTROL,
                         ..
-                    } => scroll_to_top(&mut app), // Исправлено: добавлено &mut
+                    } => scroll_to_top(&mut app),
                     KeyEvent {
                         code: KeyCode::End,
                         modifiers: KeyModifiers::CONTROL,
                         ..
-                    } => scroll_to_bottom(&mut app), // Исправлено: добавлено &mut
+                    } => scroll_to_bottom(&mut app),
                     _ => {}
                 }
             }
@@ -463,11 +463,10 @@ fn render_status_bar<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppS
     };
 
     let status = if app.loading {
-        format!("Loading {}...", source_label)
+        format!("Loading {source_label}...")
     } else {
         let x = &*format!(
-            "RTFM // {} PAGE [Tab:Switch /:Search t:Toggle Home/End]",
-            source_label
+            "RTFM // {source_label} PAGE [Tab:Switch /:Search t:Toggle Home/End]"
         );
         match app.focus {
             Focus::CommandList => "RTFM // COMMAND LIST [Tab:Switch Home/End]",
@@ -555,7 +554,7 @@ fn render_command_list_items<B: tui::backend::Backend>(
         .iter()
         .map(|cmd| {
             let prefix = { "  " };
-            ListItem::new(format!("{}{}", prefix, cmd))
+            ListItem::new(format!("{prefix}{cmd}"))
         })
         .collect();
 

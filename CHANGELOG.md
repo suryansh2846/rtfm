@@ -1,3 +1,15 @@
+commit 4c2f63546472077cec8057dc1dc7147b7bd3d3df
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 15:02:37 2025 +0700
+
+    feat: add home/end support
+
+commit 12b046a0a0689d37322e5fab5fe8b9b5ad4903af
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 14:16:55 2025 +0700
+
+    update changelog
+
 commit 321b8266900a39bcc69f0cd9d2ba258ff759132a
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 14:16:46 2025 +0700
