@@ -1,3 +1,9 @@
+commit 009bf19e0a0a0500da32bd3601461da880aba261
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 15:18:59 2025 +0700
+
+    refactor: fix code style
+
 commit 4c2f63546472077cec8057dc1dc7147b7bd3d3df
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 15:02:37 2025 +0700

@@ -368,8 +368,6 @@ fn handle_man_page_keys(app: &mut AppState, key: KeyEvent) {
 
 fn handle_search_keys(app: &mut AppState, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('j') => next_search_match(app),
-        KeyCode::Char('k') => prev_search_match(app),
         KeyCode::Enter => {
             update_search_matches(app);
             app.focus = Focus::ManPage;

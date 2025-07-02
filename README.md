@@ -46,7 +46,9 @@ RTFM - blazingly fast util for exploring man pages and tldr cheatsheets.
 
 We are support [tldr](https://github.com/tldr-pages/tldr). You should install `man` and `tldr`.
 
-![img.png](https://raw.githubusercontent.com/alexeev-prog/rtfm/refs/heads/main/img.png)
+![img.png](https://raw.githubusercontent.com/alexeev-prog/rtfm/refs/heads/main/docs/img.png)
+
+![img_1.png](https://raw.githubusercontent.com/alexeev-prog/rtfm/refs/heads/main/docs/img_1.png)
 
 ## Building
 
