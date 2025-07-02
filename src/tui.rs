@@ -1,49 +1,77 @@
+use crate::man_db::ManDb;
+use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
-    Terminal,
 };
-use std::time::{Duration, Instant};
-use anyhow::Result;
-use crate::man_db::ManDb;
-use std::sync::Arc;
 
 const PAGE_SIZE: usize = 30;
 const LIST_SIZE: usize = 50;
 const DEBOUNCE_DELAY_MS: u64 = 150;
 
-pub struct AppState {
+/// Tracks command list state
+struct CommandListState {
     input: String,
     filtered_commands: Arc<Vec<String>>,
     selected_idx: usize,
-    man_content: Arc<Vec<String>>,
+    list_scroll: usize,
+    visible_range: (usize, usize),
+}
+
+/// Tracks man page state
+struct ManPageState {
+    content: Arc<Vec<String>>,
     scroll: usize,
+}
+
+/// Tracks search state
+struct SearchState {
+    query: String,
+    matches: Arc<Vec<usize>>,
+    current_match: usize,
+}
+
+/// Application state container
+pub struct AppState {
+    command_list: CommandListState,
+    man_page: ManPageState,
+    search: SearchState,
     focus: Focus,
     man_db: Arc<ManDb>,
     loading: bool,
-    search_query: String,
-    search_matches: Arc<Vec<usize>>,
-    current_match: usize,
-    list_scroll: usize,
     last_input_time: Instant,
     pending_man_load: bool,
-    visible_list_range: (usize, usize),
+    page_source: PageSource,
 }
 
+/// UI focus areas
 enum Focus {
     CommandList,
     ManPage,
     Search,
 }
 
+/// Content source options
+enum PageSource {
+    Man,
+    Tldr,
+}
+
+/// Runs the TUI application
 pub async fn run_tui(man_db: ManDb) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
@@ -56,54 +84,81 @@ pub async fn run_tui(man_db: ManDb) -> Result<()> {
     let filtered_commands = Arc::new(commands.clone());
 
     let mut app = AppState {
-        input: String::new(),
-        filtered_commands,
-        selected_idx: 0,
-        man_content: Arc::new(Vec::new()),
-        scroll: 0,
+        command_list: CommandListState {
+            input: String::new(),
+            filtered_commands,
+            selected_idx: 0,
+            list_scroll: 0,
+            visible_range: (0, 0),
+        },
+        man_page: ManPageState {
+            content: Arc::new(Vec::new()),
+            scroll: 0,
+        },
+        search: SearchState {
+            query: String::new(),
+            matches: Arc::new(Vec::new()),
+            current_match: 0,
+        },
         focus: Focus::CommandList,
         man_db: man_db.clone(),
         loading: false,
-        search_query: String::new(),
-        search_matches: Arc::new(Vec::new()),
-        current_match: 0,
-        list_scroll: 0,
         last_input_time: Instant::now(),
         pending_man_load: true,
-        visible_list_range: (0, 0),
+        page_source: PageSource::Man,
     };
 
     loop {
         let now = Instant::now();
 
-        // Обработка отложенной загрузки man-страницы
-        if app.pending_man_load && app.last_input_time.elapsed() > Duration::from_millis(DEBOUNCE_DELAY_MS) {
-            load_current_man_page(&mut app).await;
+        // Handle delayed man page loading
+        if app.pending_man_load
+            && app.last_input_time.elapsed() > Duration::from_millis(DEBOUNCE_DELAY_MS)
+        {
+            load_current_page(&mut app).await;
             app.pending_man_load = false;
         }
 
         terminal.draw(|f| render_ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
-
-                match key.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Tab => toggle_focus(&mut app),
-                    KeyCode::Esc => app.focus = Focus::CommandList,
-                    KeyCode::Char('/') if matches!(app.focus, Focus::ManPage) => {
-                        app.focus = Focus::Search;
-                        app.search_query.clear();
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
                     }
-                    _ => handle_key(&mut app, key.code).await,
+
+                    // Handle Ctrl combinations first
+                    match key {
+                        KeyEvent {
+                            code: KeyCode::Char('c'),
+                            modifiers: KeyModifiers::CONTROL,
+                            ..
+                        } => break,
+                        _ => {}
+                    }
+
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Tab => toggle_focus(&mut app),
+                        KeyCode::Esc => app.focus = Focus::CommandList,
+                        KeyCode::Char('/') if matches!(app.focus, Focus::ManPage) => {
+                            app.focus = Focus::Search;
+                            app.search.query.clear();
+                        }
+                        KeyCode::Char('t') if matches!(app.focus, Focus::ManPage) => {
+                            toggle_page_source(&mut app);
+                            app.pending_man_load = true;
+                            app.last_input_time = Instant::now();
+                        }
+                        _ => handle_key(&mut app, key).await,
+                    }
                 }
+                _ => {}
             }
         }
 
-        // Ограничение FPS для экономии ресурсов
+        // Throttle CPU usage
         let elapsed = now.elapsed();
         if elapsed < Duration::from_millis(16) {
             tokio::time::sleep(Duration::from_millis(16) - elapsed).await;
@@ -120,6 +175,13 @@ pub async fn run_tui(man_db: ManDb) -> Result<()> {
     Ok(())
 }
 
+fn toggle_page_source(app: &mut AppState) {
+    app.page_source = match app.page_source {
+        PageSource::Man => PageSource::Tldr,
+        PageSource::Tldr => PageSource::Man,
+    };
+}
+
 fn toggle_focus(app: &mut AppState) {
     app.focus = match app.focus {
         Focus::CommandList => Focus::ManPage,
@@ -128,7 +190,7 @@ fn toggle_focus(app: &mut AppState) {
     };
 }
 
-async fn handle_key(app: &mut AppState, key: KeyCode) {
+async fn handle_key(app: &mut AppState, key: KeyEvent) {
     match app.focus {
         Focus::CommandList => handle_command_list_keys(app, key).await,
         Focus::ManPage => handle_man_page_keys(app, key),
@@ -136,57 +198,58 @@ async fn handle_key(app: &mut AppState, key: KeyCode) {
     }
 }
 
-async fn handle_command_list_keys(app: &mut AppState, key: KeyCode) {
-    let commands_len = app.filtered_commands.len();
-    if commands_len == 0 {
-        return;
-    }
+async fn handle_command_list_keys(app: &mut AppState, key: KeyEvent) {
+    let commands_len = app.command_list.filtered_commands.len();
 
-    match key {
+    match key.code {
         KeyCode::Char(c) => {
-            app.input.push(c);
+            app.command_list.input.push(c);
             filter_commands(app);
             app.pending_man_load = true;
             app.last_input_time = Instant::now();
         }
         KeyCode::Backspace => {
-            app.input.pop();
+            app.command_list.input.pop();
             filter_commands(app);
             app.pending_man_load = true;
             app.last_input_time = Instant::now();
         }
-        KeyCode::Up => {
-            if app.selected_idx > 0 {
-                app.selected_idx -= 1;
+        KeyCode::Up if commands_len > 0 => {
+            if app.command_list.selected_idx > 0 {
+                app.command_list.selected_idx -= 1;
                 update_list_scroll(app);
                 app.pending_man_load = true;
                 app.last_input_time = Instant::now();
             }
         }
-        KeyCode::Down => {
-            if app.selected_idx < commands_len - 1 {
-                app.selected_idx += 1;
+        KeyCode::Down if commands_len > 0 => {
+            if app.command_list.selected_idx < commands_len - 1 {
+                app.command_list.selected_idx += 1;
                 update_list_scroll(app);
                 app.pending_man_load = true;
                 app.last_input_time = Instant::now();
             }
         }
-        KeyCode::PageUp => {
-            app.selected_idx = app.selected_idx.saturating_sub(LIST_SIZE).max(0);
+        KeyCode::PageUp if commands_len > 0 => {
+            app.command_list.selected_idx = app
+                .command_list
+                .selected_idx
+                .saturating_sub(LIST_SIZE)
+                .max(0);
             update_list_scroll(app);
             app.pending_man_load = true;
             app.last_input_time = Instant::now();
         }
-        KeyCode::PageDown => {
-            app.selected_idx = (app.selected_idx + LIST_SIZE).min(commands_len - 1);
+        KeyCode::PageDown if commands_len > 0 => {
+            app.command_list.selected_idx =
+                (app.command_list.selected_idx + LIST_SIZE).min(commands_len - 1);
             update_list_scroll(app);
             app.pending_man_load = true;
             app.last_input_time = Instant::now();
         }
-        KeyCode::Enter => {
-            // Принудительная загрузка при нажатии Enter
+        KeyCode::Enter if commands_len > 0 => {
             app.pending_man_load = true;
-            load_current_man_page(app).await;
+            load_current_page(app).await;
             app.pending_man_load = false;
         }
         _ => {}
@@ -194,76 +257,89 @@ async fn handle_command_list_keys(app: &mut AppState, key: KeyCode) {
 }
 
 fn update_list_scroll(app: &mut AppState) {
-    let visible_height = app.visible_list_range.1 - app.visible_list_range.0;
+    let visible_height = app.command_list.visible_range.1 - app.command_list.visible_range.0;
+    let selected_idx = app.command_list.selected_idx;
 
-    if app.selected_idx < app.list_scroll {
-        app.list_scroll = app.selected_idx;
-    } else if app.selected_idx >= app.list_scroll + visible_height {
-        app.list_scroll = app.selected_idx - visible_height + 1;
+    if selected_idx < app.command_list.list_scroll {
+        app.command_list.list_scroll = selected_idx;
+    } else if selected_idx >= app.command_list.list_scroll + visible_height {
+        app.command_list.list_scroll = selected_idx - visible_height + 1;
     }
 }
 
 fn filter_commands(app: &mut AppState) {
     let commands = app.man_db.get_commands();
 
-    if app.input.is_empty() {
-        app.filtered_commands = Arc::new(commands.clone());
+    app.command_list.filtered_commands = if app.command_list.input.is_empty() {
+        Arc::new(commands.clone())
     } else {
         let filtered: Vec<String> = commands
             .iter()
-            .filter(|cmd| cmd.starts_with(&app.input))
+            .filter(|cmd| {
+                cmd.to_lowercase()
+                    .contains(&app.command_list.input.to_lowercase())
+            })
             .cloned()
             .collect();
-        app.filtered_commands = Arc::new(filtered);
-    }
-    app.selected_idx = 0;
-    app.list_scroll = 0;
+        Arc::new(filtered)
+    };
+
+    app.command_list.selected_idx = 0;
+    app.command_list.list_scroll = 0;
 }
 
-async fn load_current_man_page(app: &mut AppState) {
-    if app.filtered_commands.is_empty() {
-        app.man_content = Arc::new(vec!["No commands found".to_string()]);
+async fn load_current_page(app: &mut AppState) {
+    if app.command_list.filtered_commands.is_empty() {
+        app.man_page.content = Arc::new(vec!["No commands found".to_string()]);
         return;
     }
 
-    let cmd = app.filtered_commands[app.selected_idx].clone();
+    let cmd = app.command_list.filtered_commands[app.command_list.selected_idx].clone();
     app.loading = true;
-    let content = app.man_db.get_man_page(&cmd).await;
-    app.man_content = content;
+
+    let content = match app.page_source {
+        PageSource::Man => app.man_db.get_man_page(&cmd).await,
+        PageSource::Tldr => app.man_db.get_tldr_page(&cmd).await,
+    };
+
+    app.man_page.content = content;
     app.loading = false;
-    app.scroll = 0;
+    app.man_page.scroll = 0;
     update_search_matches(app);
 }
 
-fn handle_man_page_keys(app: &mut AppState, key: KeyCode) {
-    match key {
-        KeyCode::Up => app.scroll = app.scroll.saturating_sub(1),
-        KeyCode::Down => app.scroll = app.scroll.saturating_add(1),
-        KeyCode::PageUp => app.scroll = app.scroll.saturating_sub(PAGE_SIZE),
-        KeyCode::PageDown => app.scroll = (app.scroll + PAGE_SIZE).min(app.man_content.len().saturating_sub(PAGE_SIZE)),
+fn handle_man_page_keys(app: &mut AppState, key: KeyEvent) {
+    match key.code {
+        KeyCode::Up => app.man_page.scroll = app.man_page.scroll.saturating_sub(1),
+        KeyCode::Down => app.man_page.scroll = app.man_page.scroll.saturating_add(1),
+        KeyCode::PageUp => app.man_page.scroll = app.man_page.scroll.saturating_sub(PAGE_SIZE),
+        KeyCode::PageDown => {
+            app.man_page.scroll = (app.man_page.scroll + PAGE_SIZE)
+                .min(app.man_page.content.len().saturating_sub(PAGE_SIZE))
+        }
         KeyCode::Char('n') => next_search_match(app),
         KeyCode::Char('N') => prev_search_match(app),
         _ => {}
     }
 }
 
-fn handle_search_keys(app: &mut AppState, key: KeyCode) {
-    match key {
+fn handle_search_keys(app: &mut AppState, key: KeyEvent) {
+    match key.code {
         KeyCode::Enter => {
             update_search_matches(app);
             app.focus = Focus::ManPage;
         }
         KeyCode::Char(c) => {
-            app.search_query.push(c);
+            app.search.query.push(c);
             update_search_matches(app);
         }
         KeyCode::Backspace => {
-            app.search_query.pop();
+            app.search.query.pop();
             update_search_matches(app);
         }
         KeyCode::Esc => {
-            app.search_query.clear();
-            app.search_matches = Arc::new(Vec::new());
+            app.search.query.clear();
+            app.search.matches = Arc::new(Vec::new());
             app.focus = Focus::ManPage;
         }
         _ => {}
@@ -273,42 +349,48 @@ fn handle_search_keys(app: &mut AppState, key: KeyCode) {
 fn update_search_matches(app: &mut AppState) {
     let mut matches = Vec::new();
 
-    if !app.search_query.is_empty() {
-        for (i, line) in app.man_content.iter().enumerate() {
-            if line.contains(&app.search_query) {
+    if !app.search.query.is_empty() {
+        for (i, line) in app.man_page.content.iter().enumerate() {
+            if line
+                .to_lowercase()
+                .contains(&app.search.query.to_lowercase())
+            {
                 matches.push(i);
             }
         }
     }
 
-    app.search_matches = Arc::new(matches);
-    app.current_match = 0;
+    app.search.matches = Arc::new(matches);
+    app.search.current_match = 0;
 
-    if !app.search_matches.is_empty() {
-        app.scroll = app.search_matches[0].saturating_sub(PAGE_SIZE / 2);
+    if !app.search.matches.is_empty() {
+        app.man_page.scroll = app.search.matches[0].saturating_sub(PAGE_SIZE / 2);
     }
 }
 
 fn next_search_match(app: &mut AppState) {
-    if app.search_matches.is_empty() {
+    if app.search.matches.is_empty() {
         return;
     }
 
-    app.current_match = (app.current_match + 1) % app.search_matches.len();
-    let target_line = app.search_matches[app.current_match];
-    app.scroll = target_line.saturating_sub(PAGE_SIZE / 2);
+    app.search.current_match = (app.search.current_match + 1) % app.search.matches.len();
+    let target_line = app.search.matches[app.search.current_match];
+    app.man_page.scroll = target_line.saturating_sub(PAGE_SIZE / 2);
 }
 
 fn prev_search_match(app: &mut AppState) {
-    if app.search_matches.is_empty() {
+    if app.search.matches.is_empty() {
         return;
     }
 
-    app.current_match = app.current_match.checked_sub(1)
-        .unwrap_or(app.search_matches.len() - 1);
+    app.search.current_match = app
+        .search
+        .current_match
+        .checked_sub(1)
+        .unwrap_or(app.search.matches.len() - 1);
 
-    let target_line = app.search_matches[app.current_match];
-    app.scroll = target_line.saturating_sub(PAGE_SIZE / 2);
+    let target_line = app.search.matches[app.search.current_match];
+    app.man_page.scroll = target_line.saturating_sub(PAGE_SIZE / 2);
 }
 
 fn render_ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut AppState) {
@@ -320,7 +402,7 @@ fn render_ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut AppState
                 Constraint::Length(3),
                 Constraint::Min(10),
             ]
-                .as_ref(),
+            .as_ref(),
         )
         .split(f.size());
 
@@ -330,14 +412,25 @@ fn render_ui<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut AppState
 }
 
 fn render_status_bar<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppState, area: Rect) {
+    let source_label = match app.page_source {
+        PageSource::Man => "MAN",
+        PageSource::Tldr => "TLDR",
+    };
+
     let status = if app.loading {
-        "Loading..."
+        format!("Loading {}...", source_label)
     } else {
+        let x = &*format!(
+            "RTFM // {} PAGE [Tab:Switch /:Search n/N:Next/Prev t:Toggle]",
+            source_label
+        );
         match app.focus {
-            Focus::CommandList => "COMMAND LIST [Tab:Switch]",
-            Focus::ManPage => "MAN PAGE [Tab:Switch /:Search n/N:Next/Prev]",
-            Focus::Search => "SEARCH MODE [Enter:Apply Esc:Cancel]",
+            Focus::CommandList => "RTFM // COMMAND LIST [Tab:Switch]",
+            Focus::ManPage => x,
+            Focus::Search => "RTFM // SEARCH MODE [Enter:Apply Esc:Cancel]",
         }
+        .parse()
+        .unwrap()
     };
 
     let status_bar = Paragraph::new(status)
@@ -349,8 +442,8 @@ fn render_status_bar<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppS
 
 fn render_input<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppState, area: Rect) {
     let input_text = match app.focus {
-        Focus::CommandList | Focus::ManPage => format!("> {}", app.input),
-        Focus::Search => format!("/{}", app.search_query),
+        Focus::CommandList | Focus::ManPage => format!("> {}", app.command_list.input),
+        Focus::Search => format!("/{}", app.search.query),
     };
 
     let input = Paragraph::new(input_text.as_str())
@@ -360,7 +453,11 @@ fn render_input<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppState,
     f.render_widget(input, area);
 }
 
-fn render_main_content<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut AppState, area: Rect) {
+fn render_main_content<B: tui::backend::Backend>(
+    f: &mut tui::Frame<B>,
+    app: &mut AppState,
+    area: Rect,
+) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
@@ -370,16 +467,51 @@ fn render_main_content<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mu
     render_man_page(f, app, chunks[1]);
 }
 
-fn render_command_list<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mut AppState, area: Rect) {
-    let height = area.height as usize;
-    app.visible_list_range = (app.list_scroll, app.list_scroll + height);
+fn render_command_list<B: tui::backend::Backend>(
+    f: &mut tui::Frame<B>,
+    app: &mut AppState,
+    area: Rect,
+) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(3)].as_ref())
+        .split(area);
 
-    let end = std::cmp::min(app.list_scroll + height, app.filtered_commands.len());
-    let visible_commands = &app.filtered_commands[app.list_scroll..end];
+    render_command_list_items(f, app, chunks[0]);
+    render_command_description(f, app, chunks[1]);
+}
+
+fn render_command_list_items<B: tui::backend::Backend>(
+    f: &mut tui::Frame<B>,
+    app: &mut AppState,
+    area: Rect,
+) {
+    let height = area.height as usize;
+    app.command_list.visible_range = (
+        app.command_list.list_scroll,
+        app.command_list.list_scroll + height,
+    );
+
+    if app.command_list.filtered_commands.is_empty() {
+        let empty_msg = ListItem::new("No commands found".to_string());
+        let list = List::new(vec![empty_msg])
+            .block(Block::default().borders(Borders::ALL).title("Commands"));
+        f.render_widget(list, area);
+        return;
+    }
+
+    let end = std::cmp::min(
+        app.command_list.list_scroll + height,
+        app.command_list.filtered_commands.len(),
+    );
+    let visible_commands = &app.command_list.filtered_commands[app.command_list.list_scroll..end];
 
     let items: Vec<ListItem> = visible_commands
         .iter()
-        .map(|cmd| ListItem::new(cmd.as_str()))
+        .map(|cmd| {
+            let prefix = { "  " };
+            ListItem::new(format!("{}{}", prefix, cmd))
+        })
         .collect();
 
     let list = List::new(items)
@@ -387,39 +519,83 @@ fn render_command_list<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &mu
         .highlight_style(Style::default().bg(Color::DarkGray));
 
     let mut state = ListState::default();
-    state.select(Some(app.selected_idx - app.list_scroll));
+    state.select(Some(
+        app.command_list.selected_idx - app.command_list.list_scroll,
+    ));
     f.render_stateful_widget(list, area, &mut state);
+}
+
+fn render_command_description<B: tui::backend::Backend>(
+    f: &mut tui::Frame<B>,
+    app: &AppState,
+    area: Rect,
+) {
+    let description = if !app.command_list.filtered_commands.is_empty() {
+        if let Some(cmd) = app
+            .command_list
+            .filtered_commands
+            .get(app.command_list.selected_idx)
+        {
+            app.man_db.get_description(cmd).unwrap_or_default()
+        } else {
+            String::new()
+        }
+    } else {
+        "No commands to show".to_string()
+    };
+
+    let desc_block = Paragraph::new(description)
+        .block(Block::default().borders(Borders::ALL).title("Description"))
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(Color::Cyan));
+
+    f.render_widget(desc_block, area);
 }
 
 fn render_man_page<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppState, area: Rect) {
     let height = area.height as usize;
-    let start_line = app.scroll;
-    let end_line = std::cmp::min(start_line + height, app.man_content.len());
+    let start_line = app.man_page.scroll;
+    let end_line = std::cmp::min(start_line + height, app.man_page.content.len());
 
-    let visible_content: Vec<Spans> = app.man_content
+    let visible_content: Vec<Spans> = app
+        .man_page
+        .content
         .iter()
         .enumerate()
         .skip(start_line)
         .take(end_line - start_line)
         .map(|(idx, line)| {
             let global_idx = idx + start_line;
-            if app.search_matches.contains(&global_idx) {
-                let search_index = app.search_matches.iter().position(|&i| i == global_idx).unwrap();
-                let highlight = search_index == app.current_match;
+            if app.search.matches.contains(&global_idx) {
+                let search_index = app
+                    .search
+                    .matches
+                    .iter()
+                    .position(|&i| i == global_idx)
+                    .unwrap();
+                let highlight = search_index == app.search.current_match;
 
                 let mut spans = Vec::new();
                 let mut remaining = line.as_str();
 
-                while let Some(pos) = remaining.find(&app.search_query) {
+                while let Some(pos) = remaining.find(&app.search.query) {
                     let (before, after) = remaining.split_at(pos);
-                    let (match_text, rest) = after.split_at(app.search_query.len());
+                    let (match_text, rest) = after.split_at(app.search.query.len());
 
                     spans.push(Span::raw(before));
                     spans.push(Span::styled(
                         match_text,
                         Style::default()
-                            .bg(if highlight { Color::Red } else { Color::DarkGray })
-                            .fg(if highlight { Color::White } else { Color::Black })
+                            .bg(if highlight {
+                                Color::Red
+                            } else {
+                                Color::DarkGray
+                            })
+                            .fg(if highlight {
+                                Color::White
+                            } else {
+                                Color::Black
+                            }),
                     ));
 
                     remaining = rest;
@@ -428,14 +604,63 @@ fn render_man_page<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppSta
 
                 Spans::from(spans)
             } else {
-                Spans::from(Span::raw(line.as_str()))
+                // Apply syntax highlighting
+                let highlighted = syntax_highlight(line);
+                Spans::from(highlighted)
             }
         })
         .collect();
 
     let paragraph = Paragraph::new(visible_content)
-        .block(Block::default().borders(Borders::ALL).title("Man Page"))
+        .block(Block::default().borders(Borders::ALL).title("Content"))
         .wrap(Wrap { trim: true });
 
     f.render_widget(paragraph, area);
+}
+
+/// Basic syntax highlighting for man pages
+fn syntax_highlight(line: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut words = line.split_whitespace();
+
+    if let Some(first) = words.next() {
+        // Highlight headings
+        if first.ends_with(':') {
+            spans.push(Span::styled(
+                first,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+        // Highlight options
+        else if first.starts_with('-') {
+            spans.push(Span::styled(
+                first,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::raw(first));
+        }
+
+        for word in words {
+            spans.push(Span::raw(" "));
+
+            if word.starts_with('-') {
+                spans.push(Span::styled(word, Style::default().fg(Color::Green)));
+            } else if word.starts_with('[') && word.ends_with(']') {
+                spans.push(Span::styled(word, Style::default().fg(Color::Magenta)));
+            } else if word.starts_with('<') && word.ends_with('>') {
+                spans.push(Span::styled(word, Style::default().fg(Color::Blue)));
+            } else {
+                spans.push(Span::raw(word));
+            }
+        }
+    } else {
+        spans.push(Span::raw(line));
+    }
+
+    spans
 }

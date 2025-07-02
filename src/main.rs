@@ -1,35 +1,36 @@
+mod man_db;
 mod trie;
 mod tui;
-mod man_db;
 
-use clap::{Parser, Subcommand};
-use anyhow::Result;
 use crate::man_db::ManDb;
+use anyhow::Result;
+use clap::{Parser, Subcommand};
 use tokio;
 
+/// CLI for browsing man pages and tldr cheatsheets
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
+    /// Manual section to use (default: 1)
     #[arg(short, long, default_value_t = 1)]
-    manpage: u8,
+    section: u8,
 }
 
+/// Available subcommands
 #[derive(Subcommand)]
 enum Commands {
-    Getmans {
-        prefix: String,
-    },
-    Getman {
-        command: String,
-    },
+    /// List commands starting with prefix
+    Getmans { prefix: String },
+    /// Show man page for command
+    Getman { command: String },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let man_db = ManDb::load(cli.manpage)?;
+    let man_db = ManDb::load(cli.section)?;
 
     match cli.command {
         Some(Commands::Getmans { prefix }) => {

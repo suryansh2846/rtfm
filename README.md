@@ -40,9 +40,41 @@
   <img src="https://raw.githubusercontent.com/alexeev-prog/rtfm/refs/heads/main/docs/pallet-0.png" width="600" alt="Color Palette">
 </div>
 
- > Read the f*cking manual TODAY!
+ > Read the f*cking manual NOW!
 
 RTFM - blazingly fast util for searching manuals &amp; docs.
+
+![img.png](https://raw.githubusercontent.com/alexeev-prog/rtfm/refs/heads/main/img.png)
+
+## Building
+
+```bash
+# Clone
+git clone https://github.com/alexeev-prog/rtfm
+cd rtfm
+
+# Build
+cargo build --release
+
+# Run:
+./target/release/rtfm -V
+```
+
+## Usage
+
+```
+Usage: rtfm [OPTIONS] [COMMAND]
+
+Commands:
+  getmans  
+  getman   
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -m, --manpage <MANPAGE>  [default: 1]
+  -h, --help               Print help
+  -V, --version            Print version
+```
 
 ## License
 

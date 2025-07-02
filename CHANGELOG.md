@@ -1,3 +1,9 @@
+commit 1e208069af54f89c3881d146800c14d7ff7aa72f
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 12:33:25 2025 +0700
+
+    realize basic program with tui and mans
+
 commit 17eb0a28a3d70826d14e3029239adcfc64108a13
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 03:35:26 2025 +0700
