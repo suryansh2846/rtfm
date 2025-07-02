@@ -1,3 +1,9 @@
+commit bb2212051495f6c33cafcbff06fdfc7f47974f6c
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 14:12:41 2025 +0700
+
+    fix lint workflow
+
 commit 3897de7e1e4e04a62ed04869b94fb256bd9843ec
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 14:09:53 2025 +0700
