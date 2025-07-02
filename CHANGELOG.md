@@ -1,3 +1,9 @@
+commit 8d44c2f24c9f2059680a28c299d6f82aef823272
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 14:07:20 2025 +0700
+
+    add tests and improve readme
+
 commit f91f48db73105ba406f9914ee790c5534651c5f7
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 13:54:38 2025 +0700
