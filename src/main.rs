@@ -5,7 +5,6 @@ mod tui;
 use crate::man_db::ManDb;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tokio;
 
 /// CLI for browsing man pages and tldr cheatsheets
 #[derive(Parser)]
@@ -35,7 +34,7 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Getmans { prefix }) => {
             for word in man_db.commands_starting_with(&prefix) {
-                println!("{}", word);
+                println!("{word}");
             }
         }
         Some(Commands::Getman { command }) => {
@@ -52,7 +51,7 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod cli_tests {
-    use super::*;
+    
     use std::process::Command;
 
     #[test]

@@ -194,16 +194,9 @@ impl ManDb {
 #[cfg(test)]
 mod man_db_tests {
     use super::*;
-    use std::collections::HashMap;
+    
     use tokio::runtime::Runtime;
 
-    const MOCK_MAN_OUTPUT: &str = "
-    ls (1)               - list directory contents
-    git (1)              - the stupid content tracker
-    printf (3)           - formatted output conversion
-    printf (1)           - format and print data
-    docker-compose (1)   - define and run multi-container applications
-    ";
     #[test]
     fn test_cache_behavior() {
         let rt = Runtime::new().unwrap();

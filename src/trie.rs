@@ -39,7 +39,7 @@ impl Trie {
     pub fn insert(&mut self, word: &str) {
         let mut node = &mut self.root;
         for c in word.chars() {
-            node = node.children.entry(c).or_insert_with(TrieNode::new);
+            node = node.children.entry(c).or_default();
         }
         node.is_word = true;
     }

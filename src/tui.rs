@@ -122,39 +122,33 @@ pub async fn run_tui(man_db: ManDb) -> Result<()> {
         terminal.draw(|f| render_ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(16))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    if key.kind != KeyEventKind::Press {
-                        continue;
-                    }
-
-                    // Handle Ctrl combinations first
-                    match key {
-                        KeyEvent {
-                            code: KeyCode::Char('c'),
-                            modifiers: KeyModifiers::CONTROL,
-                            ..
-                        } => break,
-                        _ => {}
-                    }
-
-                    match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Tab => toggle_focus(&mut app),
-                        KeyCode::Esc => app.focus = Focus::CommandList,
-                        KeyCode::Char('/') if matches!(app.focus, Focus::ManPage) => {
-                            app.focus = Focus::Search;
-                            app.search.query.clear();
-                        }
-                        KeyCode::Char('t') if matches!(app.focus, Focus::ManPage) => {
-                            toggle_page_source(&mut app);
-                            app.pending_man_load = true;
-                            app.last_input_time = Instant::now();
-                        }
-                        _ => handle_key(&mut app, key).await,
-                    }
+            if let Event::Key(key) = event::read()? {
+                if key.kind != KeyEventKind::Press {
+                    continue;
                 }
-                _ => {}
+
+                // Handle Ctrl combinations first
+                if let KeyEvent {
+                        code: KeyCode::Char('c'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } = key { break }
+
+                match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Tab => toggle_focus(&mut app),
+                    KeyCode::Esc => app.focus = Focus::CommandList,
+                    KeyCode::Char('/') if matches!(app.focus, Focus::ManPage) => {
+                        app.focus = Focus::Search;
+                        app.search.query.clear();
+                    }
+                    KeyCode::Char('t') if matches!(app.focus, Focus::ManPage) => {
+                        toggle_page_source(&mut app);
+                        app.pending_man_load = true;
+                        app.last_input_time = Instant::now();
+                    }
+                    _ => handle_key(&mut app, key).await,
+                }
             }
         }
 
@@ -418,11 +412,10 @@ fn render_status_bar<B: tui::backend::Backend>(f: &mut tui::Frame<B>, app: &AppS
     };
 
     let status = if app.loading {
-        format!("Loading {}...", source_label)
+        format!("Loading {source_label}...")
     } else {
         let x = &*format!(
-            "RTFM // {} PAGE [Tab:Switch /:Search n/N:Next/Prev t:Toggle]",
-            source_label
+            "RTFM // {source_label} PAGE [Tab:Switch /:Search n/N:Next/Prev t:Toggle]"
         );
         match app.focus {
             Focus::CommandList => "RTFM // COMMAND LIST [Tab:Switch]",
@@ -510,7 +503,7 @@ fn render_command_list_items<B: tui::backend::Backend>(
         .iter()
         .map(|cmd| {
             let prefix = { "  " };
-            ListItem::new(format!("{}{}", prefix, cmd))
+            ListItem::new(format!("{prefix}{cmd}"))
         })
         .collect();
 
