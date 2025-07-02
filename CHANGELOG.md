@@ -1,3 +1,9 @@
+commit 3897de7e1e4e04a62ed04869b94fb256bd9843ec
+Author: Alexeev Bronislav <alexeev.dev@mail.ru>
+Date:   Wed Jul 2 14:09:53 2025 +0700
+
+    fix tests workflow
+
 commit 8d44c2f24c9f2059680a28c299d6f82aef823272
 Author: Alexeev Bronislav <alexeev.dev@mail.ru>
 Date:   Wed Jul 2 14:07:20 2025 +0700
